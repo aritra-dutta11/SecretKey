@@ -1,4 +1,5 @@
 import sqlite3
+import tkinter as tk
 import hashlib
 from tkinter import *
 from tkinter.ttk import *  # for pop-ups
@@ -39,15 +40,13 @@ backend = default_backend()
 salt = b'2444'
 
 
-def keyGenerate(password):
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=100000,
-        backend=backend,
-    )
-    return base64.urlsafe_b64encode(kdf.derive(password.get().encode()))
+kdf = PBKDF2HMAC(
+    algorithm=hashes.SHA256(),
+    length=32,
+    salt=salt,
+    iterations=100000,
+    backend=backend,
+)
 
 
 encryptionKey = 0
@@ -84,42 +83,43 @@ def hashingPassword(password):
 
 def generatePassword():
     randomPassword = ''
+    punc = ['@', '_']
     passlist = random.choices(string.ascii_uppercase, k=3) + random.choices(
-        string.ascii_lowercase, k=4) + random.choices(string.digits, k=3) + random.choices(string.punctuation, k=2)
+        string.ascii_lowercase, k=4) + random.choices(string.digits, k=3) + random.choices(punc, k=1)
 
     random.shuffle(passlist)
-    if '@' not in passlist:
-        passlist[2] = '@'
+    # if '@' not in passlist:
+    #     passlist[2] = '@'
     random.shuffle(passlist)
     randomPassword = ''.join(passlist)
     return randomPassword
 
 
-def recoveryScreen(key):
-    for widget in window.winfo_children():
-        widget.destroy()
+# def recoveryScreen():
+#     for widget in window.winfo_children():
+#         widget.destroy()
 
-    window.geometry('250x125')
+#     window.geometry('250x125')
 
-    lbl = Label(window, text='Save This Key to recover your account')
-    lbl.config(anchor=CENTER)
-    lbl.pack()
+#     lbl = Label(window, text='Save This Key to recover your account')
+#     lbl.config(anchor=CENTER)
+#     lbl.pack()
 
-    lbl1 = Label(window, text=key)
-    lbl1.config(anchor=CENTER)
-    lbl1.pack()
+#     lbl1 = Label(window, text=key)
+#     lbl1.config(anchor=CENTER)
+#     lbl1.pack()
 
-    def copyKey():
-        pyperclip.copy(lbl1.cget('text'))
+#     def copyKey():
+#         pyperclip.copy(lbl1.cget('text'))
 
-    btn = Button(window, text="Copy Key", command=copyKey)
-    btn.pack(pady=5)
+#     btn = Button(window, text="Copy Key", command=copyKey)
+#     btn.pack(pady=5)
 
-    def done():
-        loginScreen()
+#     def done():
+#         loginScreen()
 
-    btn = Button(window, text="Done", command=done)
-    btn.pack(pady=5)
+#     btn = Button(window, text="Done", command=done)
+#     btn.pack(pady=5)
 
 # setting up the credentials
 
@@ -148,27 +148,33 @@ def register():
     confirmPassword.pack(pady=5)
     confirmPassword.focus()
 
+    label = Label(window, text="Enter Security Answer")
+    label.config(anchor=CENTER)
+    label.pack()
+
+    secAns = Entry(window, width=20, show='*')
+    secAns.pack(pady=5)
+    secAns.focus()
+
     unmatched = Label(window)
     unmatched.pack()
 
     def savePassword():
         if (password.get() == confirmPassword.get()):
 
-            sql = "DELETE FROM user WHERE user_id = 1"
-            cursor.execute(sql)
             hashedPassword = hashingPassword(password.get().encode('utf-8'))
 
-            key = str(uuid.uuid4().hex)
-            recoveryKey = hashingPassword(key.encode('utf-8'))
-
             global encryptionKey
-            encryptionKey = keyGenerate(password)
+            encryptionKey = base64.urlsafe_b64encode(
+                kdf.derive(secAns.get().encode()))
+
+            securityAns = secAns.get()
 
             insert = """INSERT INTO user(master_password,recoveryKey) VALUES(?,?) """
-            cursor.execute(insert, ((hashedPassword), (recoveryKey)))
+            cursor.execute(insert, ((hashedPassword), (securityAns)))
             db.commit()
 
-            recoveryScreen(key)
+            loginScreen()
         else:
             password.delete(0, 'end')
             confirmPassword.delete(0, 'end')
@@ -179,41 +185,79 @@ def register():
     button.pack(pady=10)
 
 
-# reset Screen
 def resetScreen():
     for widget in window.winfo_children():
         widget.destroy()
 
     window.geometry('250x125')
 
-    lbl = Label(window, text='Enter Recovery Key')
-    lbl.config(anchor=CENTER)
-    lbl.pack()
+    label = Label(window, text="Create New Master Password")
+    label.config(anchor=CENTER)
+    label.pack()
 
-    text = Entry(window, width=20)
-    text.pack(pady=5)
-    text.focus()
+    password = Entry(window, width=20, show='*')
+    password.pack(pady=5)
+    password.focus()
 
-    lbl1 = Label(window)
-    lbl1.config(anchor=CENTER)
-    lbl1.pack()
+    # Confirm Master Password
+    label = Label(window, text="Confirm New Master Password")
+    label.config(anchor=CENTER)
+    label.pack()
 
-    def getRecoveryKey():
-        recoveryKey = hashingPassword(str(text.get()).encode('utf-8'))
-        cursor.execute(
-            'SELECT * FROM user WHERE user_id=1 AND recoveryKey = ?', [(recoveryKey)])
-        return cursor.fetchall()
+    confirmPassword = Entry(window, width=20, show='*')
+    confirmPassword.pack(pady=5)
+    confirmPassword.focus()
 
-    def checkRecoveryKey():
-        check = getRecoveryKey()
-        if (check):
-            register()
+    def updatePassword():
+        if password.get() and confirmPassword.get():
+            if password.get() == confirmPassword.get():
+                hashed = hashingPassword(password.get().encode('utf-8'))
+                cursor.execute(
+                    'UPDATE user SET master_password = ? WHERE user_id = 1', (hashed,))
+                db.commit()
+                loginScreen()
+            else:
+                messagebox.showerror("Error", "Passwords did not match")
         else:
-            text.delete(0, 'end')
-            lbl1.config(text='Wrong Key')
+            messagebox.showerror("Error", "Fill out the given Fields")
 
-    btn = Button(window, text="Submit", command=checkRecoveryKey)
-    btn.pack(pady=5)
+    button = Button(window, text="Update", style='W.TButton',
+                    cursor="hand2", command=updatePassword)
+    button.pack(pady=10)
+
+# reset Screen
+
+
+def verifyScreen():
+    for widget in window.winfo_children():
+        widget.destroy()
+
+    window.geometry('250x125')
+
+    label = Label(window, text="Enter Security answer")
+    label.config(anchor=CENTER)
+    label.pack()
+
+    secAns = Entry(window, width=20, show='*')
+    secAns.pack(pady=5)
+    secAns.focus()
+
+    def checkSecAns():
+        if secAns.get():
+            cursor.execute('SELECT * FROM user')
+            array = cursor.fetchall()
+            print(array[0][2])
+            if secAns.get() == array[0][2]:
+                resetScreen()
+            else:
+                messagebox.showerror("Error", "Security Answer did not match")
+        else:
+            messagebox.showerror("Error", "Fill the given field")
+
+    button = Button(window, text="Verify", style='W.TButton',
+                    cursor="hand2", command=checkSecAns)
+    button.pack(pady=10)
+
 
 # login screen
 
@@ -238,8 +282,6 @@ def loginScreen():
 
     def getMasterPassword():
         hashed = hashingPassword(text.get().encode('utf-8'))
-        global encryptionKey
-        encryptionKey = keyGenerate(text)
         cursor.execute(
             "SELECT * from user where user_id = 1 AND master_password = ?", [(hashed)])
         return cursor.fetchall()
@@ -248,6 +290,14 @@ def loginScreen():
         match = getMasterPassword()
 
         if (match):
+            global encryptionKey
+            if encryptionKey == 0:
+                cursor.execute('SELECT * FROM user')
+                array = cursor.fetchall()
+
+                encryptionKey = base64.urlsafe_b64encode(
+                    kdf.derive(array[0][2].encode()))
+
             passwordVault()
         else:
             text.delete(0, 'end')
@@ -258,7 +308,7 @@ def loginScreen():
     button.pack(pady=10)
 
     def resetPassword():
-        resetScreen()
+        verifyScreen()
 
     button1 = Button(window, text="Reset", style='W.TButton',
                      cursor="hand2", command=resetPassword)
@@ -374,6 +424,8 @@ def passwordVault():
         websiteNameLabel.pack()
 
         websiteNameText = Entry(updatePass, width=20)
+        websiteNameText.insert(0, decrypt(info[0][1], encryptionKey))
+        websiteNameText.configure(state=tk.DISABLED)
         websiteNameText.pack(pady=5)
         websiteNameText.focus()
 
@@ -412,8 +464,11 @@ def passwordVault():
 
         def updateDB(id):
             if (websiteNameText.get() and userNameText.get() and passwordText.get()):
-                username = userNameText.get()
-                password = passwordText.get()
+                text1 = userNameText.get().encode()
+                text2 = passwordText.get().encode()
+                global encryptionKey
+                username = encrypt(text1, encryptionKey)
+                password = encrypt(text2, encryptionKey)
                 updateStatement = """UPDATE passwords SET username=?, password = ? WHERE password_id=?"""
                 cursor.execute(updateStatement, (username, password, id))
                 db.commit()
